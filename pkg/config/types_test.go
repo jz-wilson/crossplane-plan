@@ -30,6 +30,10 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("AnnotationKey = %s, want millstone.tech/preview-pr", cfg.AnnotationKey)
 	}
 
+	if cfg.OutputFormat != "github" {
+		t.Errorf("OutputFormat = %s, want github", cfg.OutputFormat)
+	}
+
 	// Check Diff defaults
 	if !cfg.Diff.StripDefaults {
 		t.Error("Diff.StripDefaults should be true by default")

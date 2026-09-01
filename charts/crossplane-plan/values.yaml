@@ -44,6 +44,10 @@ resources:
     cpu: 500m
     memory: 512Mi
 
+# Diff output format: "github" (GitHub-flavored markdown PR comment, default)
+# or "json" (structured JSON for programmatic consumers)
+outputFormat: github
+
 # Detection configuration
 detection:
   # PR detection strategy: name, label, or annotation

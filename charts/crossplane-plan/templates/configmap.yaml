@@ -20,6 +20,9 @@ data:
   # GitHub repository for posting comments (format: owner/repo)
   github-repo: {{ .Values.github.repo | quote }}
 
+  # Diff output format: "github" or "json"
+  output-format: {{ .Values.outputFormat | quote }}
+
   # Label key for label-based detection (optional)
   label-key: {{ .Values.detection.labelKey | quote }}
 

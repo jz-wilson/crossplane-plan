@@ -44,6 +44,7 @@ spec:
             - --detection-strategy=$(DETECTION_STRATEGY)
             - --name-pattern=$(NAME_PATTERN)
             - --github-repo=$(GITHUB_REPO)
+            - --output-format=$(OUTPUT_FORMAT)
           env:
             # Pod identity for leader election
             - name: POD_NAME
@@ -71,6 +72,11 @@ spec:
                 configMapKeyRef:
                   name: {{ include "crossplane-plan.configMapName" . }}
                   key: github-repo
+            - name: OUTPUT_FORMAT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "crossplane-plan.configMapName" . }}
+                  key: output-format
 
             # GitHub authentication (uses same secret as crossplane-provider-github)
             - name: GITHUB_CREDENTIALS
