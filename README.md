@@ -215,6 +215,14 @@ config:
     stripRules: []       # Add custom field exclusions
 ```
 
+### Output Formats
+
+By default (`--output-format=github`, or `outputFormat: github` in Helm values), diffs are rendered as GitHub-flavored markdown and posted as a PR comment.
+
+Set `--output-format=json` to render the same diff as structured JSON instead, for consumers that want to process it programmatically (e.g. feeding it into a policy engine or static analyzer) rather than reading it as a PR comment. The JSON output is a faithful, versioned serialization of the underlying `differ.DiffResult` — every field (including nested managed-resource state and stripped-field details) is preserved, map-derived fields are key-sorted for deterministic output, and a `schemaVersion` field lets consumers detect breaking changes to the format. This is purely an output format switch: detection, diff calculation, and GitHub posting behavior are unchanged.
+
+In `--dry-run` mode the rendered output (in either format) is written to stdout, separate from the structured logs on stderr, so it can be piped or redirected.
+
 ## Development
 
 ### Prerequisites

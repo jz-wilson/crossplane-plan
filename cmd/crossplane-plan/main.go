@@ -41,6 +41,7 @@ var (
 	argocdNamespace         string
 	argocdPRPrefix          string
 	argocdPRSuffix          string
+	outputFormat            string
 )
 
 func init() {
@@ -61,6 +62,7 @@ func init() {
 	flag.StringVar(&argocdNamespace, "argocd-namespace", "argocd", "ArgoCD namespace")
 	flag.StringVar(&argocdPRPrefix, "argocd-pr-prefix", "pr-", "ArgoCD PR app name prefix (e.g., 'pr-' for 'pr-123-myapp')")
 	flag.StringVar(&argocdPRSuffix, "argocd-pr-suffix", "", "ArgoCD PR app name suffix (optional)")
+	flag.StringVar(&outputFormat, "output-format", "github", "Diff output format: github (GitHub-flavored markdown) or json (structured JSON for programmatic consumers)")
 }
 
 func main() {
@@ -76,6 +78,7 @@ func main() {
 		"namePattern", namePattern,
 		"githubRepo", githubRepo,
 		"dryRun", dryRun,
+		"outputFormat", outputFormat,
 	)
 
 	// Validate required flags
@@ -126,6 +129,7 @@ func main() {
 	appConfig.NamePattern = namePattern
 	appConfig.GitHubRepo = githubRepo
 	appConfig.DryRun = dryRun
+	appConfig.OutputFormat = outputFormat
 
 	// Create PR detector
 	prDetector, err := createDetector(appConfig)
@@ -153,7 +157,16 @@ func main() {
 	}
 
 	// Create formatter
-	diffFormatter := formatter.NewGitHubFormatter()
+	var diffFormatter formatter.Formatter
+	switch appConfig.OutputFormat {
+	case "github":
+		diffFormatter = formatter.NewGitHubFormatter()
+	case "json":
+		diffFormatter = formatter.NewJSONFormatter()
+	default:
+		logrLogger.Error(fmt.Errorf("unknown output format: %s", appConfig.OutputFormat), "invalid --output-format", "hint", "supported values: github, json")
+		os.Exit(1)
+	}
 
 	// Create VCS client (if not dry-run)
 	var vcsClient *github.Client

@@ -31,7 +31,7 @@ type XRWatcher struct {
 	dynamicClient          dynamic.Interface
 	detector               detector.Detector
 	differ                 *differ.Calculator
-	formatter              *formatter.GitHubFormatter
+	formatter              formatter.Formatter
 	vcsClient              *github.Client
 	argocdClient           *argocd.Client
 	logger                 logr.Logger
@@ -46,7 +46,7 @@ func NewXRWatcher(
 	clientset *kubernetes.Clientset,
 	detector detector.Detector,
 	differ *differ.Calculator,
-	formatter *formatter.GitHubFormatter,
+	formatter formatter.Formatter,
 	vcsClient *github.Client,
 	argocdClient *argocd.Client,
 	logger logr.Logger,
@@ -480,8 +480,12 @@ func (w *XRWatcher) handlePRBatch(ctx context.Context, prNumber int, xrs []*unst
 		}
 		w.logger.Info("Posted GitHub comment", "prNumber", prNumber, "resourceCount", len(results))
 	} else {
-		// Dry-run mode
+		// Dry-run mode: log that we would have posted, and emit the
+		// rendered output on stdout (separate from the logger, which writes
+		// to stderr) so it can be inspected or piped to another tool
+		// regardless of which formatter produced it.
 		w.logger.Info("Dry-run: would post comment", "prNumber", prNumber, "resourceCount", len(results))
+		fmt.Println(comment)
 	}
 
 	return nil

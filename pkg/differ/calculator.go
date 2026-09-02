@@ -18,64 +18,72 @@ import (
 )
 
 // ManagedResourceState captures the state of a managed resource
+//
+// JSON tags define the stable wire format consumed by formatter.JSONFormatter;
+// keep them in sync with any field additions/renames (see JSONFormatter's
+// schema version doc comment).
 type ManagedResourceState struct {
 	// Resource is the managed resource
-	Resource *unstructured.Unstructured
+	Resource *unstructured.Unstructured `json:"resource"`
 
 	// ManagementPolicies from the resource spec
-	ManagementPolicies []string
+	ManagementPolicies []string `json:"managementPolicies,omitempty"`
 
 	// IsReadOnly indicates if resource has Observe-only management policy
-	IsReadOnly bool
+	IsReadOnly bool `json:"isReadOnly"`
 
 	// SpecForProvider is the desired state from spec.forProvider
-	SpecForProvider map[string]interface{}
+	SpecForProvider map[string]interface{} `json:"specForProvider,omitempty"`
 
 	// StatusAtProvider is the observed state from status.atProvider
-	StatusAtProvider map[string]interface{}
+	StatusAtProvider map[string]interface{} `json:"statusAtProvider,omitempty"`
 
 	// HasAtProvider indicates if status.atProvider exists and is populated
-	HasAtProvider bool
+	HasAtProvider bool `json:"hasAtProvider"`
 
 	// IsReady indicates if the resource Ready condition is True
-	IsReady bool
+	IsReady bool `json:"isReady"`
 
 	// DeclaredVsActual contains fields that differ between spec and status
-	DeclaredVsActual map[string]FieldComparison
+	DeclaredVsActual map[string]FieldComparison `json:"declaredVsActual,omitempty"`
 }
 
 // FieldComparison represents a difference between declared and actual state
 type FieldComparison struct {
-	Path     string
-	Declared interface{}
-	Actual   interface{}
+	Path     string      `json:"path"`
+	Declared interface{} `json:"declared"`
+	Actual   interface{} `json:"actual"`
 }
 
 // DiffResult represents the structured diff output
+//
+// JSON tags define the stable wire format consumed by formatter.JSONFormatter;
+// keep them in sync with any field additions/renames (see JSONFormatter's
+// schema version doc comment).
 type DiffResult struct {
 	// XR is the Composite Resource being diffed
-	XR *unstructured.Unstructured
+	XR *unstructured.Unstructured `json:"xr,omitempty"`
 
 	// RawDiff is the raw diff output from crossplane-diff
-	RawDiff string
+	RawDiff string `json:"rawDiff"`
 
 	// HasChanges indicates if there are any changes
-	HasChanges bool
+	HasChanges bool `json:"hasChanges"`
 
 	// Summary provides a high-level summary of changes
-	Summary string
+	Summary string `json:"summary"`
 
 	// ManagedResources contains state information for managed resources
-	ManagedResources []ManagedResourceState
+	ManagedResources []ManagedResourceState `json:"managedResources,omitempty"`
 
 	// StrippedFields tracks fields that were removed before diff for transparency
-	StrippedFields []StrippedField
+	StrippedFields []StrippedField `json:"strippedFields,omitempty"`
 }
 
 // StrippedField represents a field that was stripped before diff
 type StrippedField struct {
-	Path   string
-	Reason string
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
 }
 
 // Calculator uses crossplane-diff library to calculate diffs
@@ -146,7 +154,7 @@ func (c *Calculator) Initialize(ctx context.Context) error {
 		c.xpClients,
 		diffprocessor.WithLogger(c.logger),
 		diffprocessor.WithNamespace("default"),
-		diffprocessor.WithColorize(false),   // No colors for structured output
+		diffprocessor.WithColorize(false), // No colors for structured output
 		diffprocessor.WithCompact(false),
 		diffprocessor.WithMaxNestedDepth(10), // Default depth limit for nested XRs
 	)
@@ -183,7 +191,7 @@ func (c *Calculator) CalculateDiff(ctx context.Context, xr *unstructured.Unstruc
 	// Perform diff - PerformDiff writes to io.Writer
 	resources := []*unstructured.Unstructured{xrForDiff}
 	err := c.processor.PerformDiff(ctx, &buf, resources, c.xpClients.Composition.FindMatchingComposition)
-	
+
 	diffOutput := buf.String()
 	hasChanges := len(strings.TrimSpace(diffOutput)) > 0
 
@@ -293,8 +301,8 @@ func (c *Calculator) fetchManagedResources(ctx context.Context, xr *unstructured
 // analyzeManagedResource extracts and compares state from a managed resource
 func (c *Calculator) analyzeManagedResource(mr *unstructured.Unstructured) ManagedResourceState {
 	state := ManagedResourceState{
-		Resource:           mr,
-		DeclaredVsActual:   make(map[string]FieldComparison),
+		Resource:         mr,
+		DeclaredVsActual: make(map[string]FieldComparison),
 	}
 
 	// Extract managementPolicies

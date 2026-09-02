@@ -1,6 +1,7 @@
 package differ
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -154,4 +155,85 @@ func TestCalculator_SetSanitizer(t *testing.T) {
 	if calc.sanitizer != sanitizer {
 		t.Error("SetSanitizer() did not set the correct sanitizer instance")
 	}
+}
+
+// TestDiffResult_JSONTags locks in the JSON field names on DiffResult and its
+// nested types, since formatter.JSONFormatter depends on them for a stable
+// wire format. If this test breaks, formatter.JSONSchemaVersion likely needs
+// a bump too.
+func TestDiffResult_JSONTags(t *testing.T) {
+	xr := &unstructured.Unstructured{}
+	xr.SetKind("XGitHubRepository")
+	xr.SetName("mill")
+
+	result := &DiffResult{
+		XR:         xr,
+		RawDiff:    "+ line",
+		HasChanges: true,
+		Summary:    "1 change",
+		ManagedResources: []ManagedResourceState{
+			{
+				Resource:   xr,
+				IsReadOnly: true,
+				DeclaredVsActual: map[string]FieldComparison{
+					"field": {Path: "field", Declared: "a", Actual: "b"},
+				},
+			},
+		},
+		StrippedFields: []StrippedField{
+			{Path: "spec.foo", Reason: "noise"},
+		},
+	}
+
+	b, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	for _, key := range []string{"rawDiff", "hasChanges", "summary", "managedResources", "strippedFields", "xr"} {
+		if _, ok := decoded[key]; !ok {
+			t.Errorf("expected top-level JSON key %q, got keys: %v", key, mapKeys(decoded))
+		}
+	}
+
+	managedResources, ok := decoded["managedResources"].([]interface{})
+	if !ok || len(managedResources) != 1 {
+		t.Fatalf("managedResources = %v, want a single-element array", decoded["managedResources"])
+	}
+	mr, ok := managedResources[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("managedResources[0] is not an object: %v", managedResources[0])
+	}
+	for _, key := range []string{"resource", "isReadOnly", "declaredVsActual"} {
+		if _, ok := mr[key]; !ok {
+			t.Errorf("expected managedResources[0] key %q, got keys: %v", key, mapKeys(mr))
+		}
+	}
+
+	strippedFields, ok := decoded["strippedFields"].([]interface{})
+	if !ok || len(strippedFields) != 1 {
+		t.Fatalf("strippedFields = %v, want a single-element array", decoded["strippedFields"])
+	}
+	sf, ok := strippedFields[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("strippedFields[0] is not an object: %v", strippedFields[0])
+	}
+	for _, key := range []string{"path", "reason"} {
+		if _, ok := sf[key]; !ok {
+			t.Errorf("expected strippedFields[0] key %q, got keys: %v", key, mapKeys(sf))
+		}
+	}
+}
+
+func mapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
