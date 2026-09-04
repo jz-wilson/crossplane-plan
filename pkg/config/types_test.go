@@ -151,6 +151,44 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_VCSProviderConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	configYAML := `vcs:
+  provider: azure-repos
+  github:
+    repository: owner/repo
+  azureRepos:
+    organization: org
+    projectId: 11111111-1111-1111-1111-111111111111
+    repositoryId: 22222222-2222-2222-2222-222222222222
+    auth:
+      mode: workloadIdentity
+`
+	if err := os.WriteFile(configPath, []byte(configYAML), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.VCS.Provider != "azure-repos" || cfg.VCS.AzureRepos.ProjectID == "" {
+		t.Errorf("VCS config = %+v", cfg.VCS)
+	}
+}
+
+func TestLoadConfig_RejectsLegacyTopLevelGitHub(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("github:\n  repo: owner/repo\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if _, err := LoadConfig(configPath); err == nil {
+		t.Fatal("LoadConfig() error = nil, want legacy config error")
+	}
+}
+
 func TestGetAllStripRules_WithDefaults(t *testing.T) {
 	cfg := &Config{
 		Diff: DiffConfig{

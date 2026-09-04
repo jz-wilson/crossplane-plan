@@ -12,7 +12,7 @@ import (
 	"github.com/millstonehq/crossplane-plan/pkg/detector"
 	"github.com/millstonehq/crossplane-plan/pkg/differ"
 	"github.com/millstonehq/crossplane-plan/pkg/formatter"
-	"github.com/millstonehq/crossplane-plan/pkg/vcs/github"
+	"github.com/millstonehq/crossplane-plan/pkg/vcs"
 	"github.com/millstonehq/crossplane-plan/pkg/workqueue"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -32,7 +32,7 @@ type XRWatcher struct {
 	detector               detector.Detector
 	differ                 *differ.Calculator
 	formatter              formatter.Formatter
-	vcsClient              *github.Client
+	vcsClient              vcs.Commenter
 	argocdClient           *argocd.Client
 	logger                 logr.Logger
 	processedXRs           map[string]string // name -> resource version
@@ -47,7 +47,7 @@ func NewXRWatcher(
 	detector detector.Detector,
 	differ *differ.Calculator,
 	formatter formatter.Formatter,
-	vcsClient *github.Client,
+	vcsClient vcs.Commenter,
 	argocdClient *argocd.Client,
 	logger logr.Logger,
 	reconciliationInterval int,
@@ -473,12 +473,12 @@ func (w *XRWatcher) handlePRBatch(ctx context.Context, prNumber int, xrs []*unst
 		comment = w.formatter.FormatMultipleDiffs(results, argocdDiff)
 	}
 
-	// Post to GitHub
+	// Post to selected VCS provider
 	if w.vcsClient != nil {
 		if err := w.vcsClient.PostComment(ctx, prNumber, comment); err != nil {
-			return fmt.Errorf("failed to post GitHub comment: %w", err)
+			return fmt.Errorf("failed to post VCS comment: %w", err)
 		}
-		w.logger.Info("Posted GitHub comment", "prNumber", prNumber, "resourceCount", len(results))
+		w.logger.Info("Posted VCS comment", "prNumber", prNumber, "resourceCount", len(results))
 	} else {
 		// Dry-run mode: log that we would have posted, and emit the
 		// rendered output on stdout (separate from the logger, which writes
@@ -596,10 +596,10 @@ func (w *XRWatcher) detectDeletions(ctx context.Context, prNumber int, prResourc
 
 				// Create a deletion diff result
 				deletionDiff := &differ.DiffResult{
-					XR:         prodXR,
-					HasChanges: true,
-					Summary:    "⚠️  Resource will be **DELETED**",
-					RawDiff:    fmt.Sprintf("Resource %s/%s will be deleted", prodXR.GetKind(), prodName),
+					XR:               prodXR,
+					HasChanges:       true,
+					Summary:          "⚠️  Resource will be **DELETED**",
+					RawDiff:          fmt.Sprintf("Resource %s/%s will be deleted", prodXR.GetKind(), prodName),
 					ManagedResources: []differ.ManagedResourceState{},
 					StrippedFields:   []differ.StrippedField{},
 				}

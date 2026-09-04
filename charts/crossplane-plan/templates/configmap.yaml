@@ -17,8 +17,17 @@ data:
   # Example: pr-{number}-* matches pr-123-mill
   name-pattern: {{ .Values.detection.namePattern | quote }}
 
+  # Selected VCS provider: github or azure-repos
+  vcs-provider: {{ .Values.vcs.provider | quote }}
+
   # GitHub repository for posting comments (format: owner/repo)
-  github-repo: {{ .Values.github.repo | quote }}
+  vcs-github-repository: {{ .Values.vcs.github.repository | quote }}
+
+  # Azure Repos provider identity
+  vcs-azure-organization: {{ .Values.vcs.azureRepos.organization | quote }}
+  vcs-azure-project-id: {{ .Values.vcs.azureRepos.projectId | quote }}
+  vcs-azure-repository-id: {{ .Values.vcs.azureRepos.repositoryId | quote }}
+  vcs-azure-auth-mode: {{ .Values.vcs.azureRepos.auth.mode | quote }}
 
   # Diff output format: "github" or "json"
   output-format: {{ .Values.outputFormat | quote }}
@@ -46,6 +55,18 @@ data:
 
   # Field stripping configuration
   config.yaml: |
+    # Provider configuration. Secret values are injected through environment variables.
+    vcs:
+      provider: {{ .Values.vcs.provider | quote }}
+      github:
+        repository: {{ .Values.vcs.github.repository | quote }}
+      azureRepos:
+        organization: {{ .Values.vcs.azureRepos.organization | quote }}
+        projectId: {{ .Values.vcs.azureRepos.projectId | quote }}
+        repositoryId: {{ .Values.vcs.azureRepos.repositoryId | quote }}
+        auth:
+          mode: {{ .Values.vcs.azureRepos.auth.mode | quote }}
+
     # Diff configuration
     diff:
       # Enable built-in default strip rules

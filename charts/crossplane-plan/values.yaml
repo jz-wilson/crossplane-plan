@@ -4,7 +4,7 @@
 
 # Image configuration
 image:
-  repository: ghcr.io/millstonehq/crossplane-plan
+  repository: ghcr.io/jz-wilson/crossplane-plan
   # Image tag (overrides chart appVersion)
   tag: ""  # defaults to chart appVersion
   pullPolicy: Always
@@ -59,14 +59,26 @@ detection:
   # Annotation key for annotation-based detection (optional)
   annotationKey: "millstone.tech/preview-pr"
 
-# GitHub configuration
-github:
-  # GitHub repository for posting comments (format: owner/repo)
-  repo: "millstonehq/mill"
-  # Secret reference for GitHub credentials
-  # Uses same secret as crossplane-provider-github
-  credentialsSecretName: github-creds
-  credentialsSecretKey: credentials
+# VCS configuration
+vcs:
+  # Provider: github or azure-repos
+  provider: github
+  github:
+    # Repository for posting comments (format: owner/repo)
+    repository: "millstonehq/mill"
+    # Secret reference for GitHub credentials
+    credentialsSecretName: github-creds
+    credentialsSecretKey: credentials
+  azureRepos:
+    organization: ""
+    projectId: ""
+    repositoryId: ""
+    auth:
+      # workloadIdentity for deployed runtime, pat for local/emergency use
+      mode: workloadIdentity
+      tokenSecretRef:
+        name: azure-devops-pat
+        key: token
 
 # ArgoCD configuration
 argocd:

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 
@@ -48,8 +49,11 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Parse YAML
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	// Parse YAML with schema checking so legacy top-level GitHub settings fail
+	// instead of being silently ignored during provider migration.
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
