@@ -7,159 +7,27 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build-and-publish:
-    name: Build, Test and Publish
+  build-and-test:
+    name: Build and Test
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and Test (PR)
-        if: github.event_name == 'pull_request'
+      - name: Build and Test
         uses: ./.github/actions/earthly-build
         with:
           earthly-target: '+all'
           push: 'false'
 
-      - name: Build, Test and Publish (Main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: ./.github/actions/earthly-build
-        with:
-          earthly-target: '+publish'
-          push: 'true'
-
-      - name: Build Summary (PR)
-        if: success() && github.event_name == 'pull_request'
+      - name: Build Summary
+        if: success()
         run: |
-          echo "✓ crossplane-plan built and tested successfully"
-          echo "  - All tests passed"
-          echo "  - Linting passed"
-          echo "  - Binary built"
-
-      - name: Publish Summary
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          echo "✓ Successfully published crossplane-plan"
-          echo ""
-          echo "Published image:"
-          echo "  - ghcr.io/millstonehq/crossplane-plan:latest"
-          echo ""
-          echo "Usage:"
-          echo "  kubectl set image deployment/crossplane-plan \\"
-          echo "    watcher=ghcr.io/millstonehq/crossplane-plan:latest \\"
-          echo "    -n crossplane-system"
-
-      - name: Check if commit is from Copybara Export
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        id: check-origin
-        run: |
-          # Check if the latest commit has GitOrigin-RevId (means it came from mill export)
-          if git log -1 --format=%B | grep -q "GitOrigin-RevId:"; then
-            echo "is_from_mill=true" >> $GITHUB_OUTPUT
-            echo "⏭️  Skipping import: commit came from mill (has GitOrigin-RevId)"
-          else
-            echo "is_from_mill=false" >> $GITHUB_OUTPUT
-            echo "✓ Will trigger import: external contribution detected"
-          fi
-
-      - name: Debug GitHub App Secrets
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.check-origin.outputs.is_from_mill == 'false'
-        env:
-          APP_ID: ${{ secrets.COPYBARA_APP_ID }}
-          PRIVATE_KEY: ${{ secrets.COPYBARA_APP_PRIVATE_KEY }}
-        run: |
-          echo "=== GitHub App Secret Validation ==="
-
-          # Check APP_ID
-          if [ -z "$APP_ID" ]; then
-            echo "❌ COPYBARA_APP_ID is empty or not set"
-            exit 1
-          else
-            echo "✅ COPYBARA_APP_ID is set (length: ${#APP_ID})"
-            # Check if it's numeric (GitHub App IDs are numbers)
-            if [[ "$APP_ID" =~ ^[0-9]+$ ]]; then
-              echo "✅ COPYBARA_APP_ID format looks valid (numeric)"
-            else
-              echo "⚠️  COPYBARA_APP_ID is not numeric (expected numeric App ID)"
-            fi
-          fi
-
-          # Check PRIVATE_KEY
-          if [ -z "$PRIVATE_KEY" ]; then
-            echo "❌ COPYBARA_APP_PRIVATE_KEY is empty or not set"
-            exit 1
-          else
-            echo "✅ COPYBARA_APP_PRIVATE_KEY is set (length: ${#PRIVATE_KEY} chars)"
-
-            # Check if it starts with PEM header (GitHub will mask the value but we can check format)
-            if [[ "$PRIVATE_KEY" == "-----BEGIN"* ]]; then
-              echo "✅ PRIVATE_KEY starts with '-----BEGIN' (valid PEM format)"
-            else
-              echo "❌ PRIVATE_KEY does not start with '-----BEGIN' (invalid PEM format)"
-              echo "First 20 chars: ${PRIVATE_KEY:0:20}"
-              exit 1
-            fi
-
-            # Check if it contains expected PEM structure
-            if [[ "$PRIVATE_KEY" == *"-----END"* ]]; then
-              echo "✅ PRIVATE_KEY contains '-----END' (valid PEM format)"
-            else
-              echo "❌ PRIVATE_KEY missing '-----END' (invalid PEM format)"
-              exit 1
-            fi
-
-            # Validate private key with OpenSSL
-            echo "🔍 Validating private key with OpenSSL..."
-
-            # Try modern PKCS#8 format first
-            if echo "$PRIVATE_KEY" | openssl pkey -noout 2>&1 | grep -q "Could not read key"; then
-              echo "⚠️  OpenSSL pkey command failed, trying RSA format..."
-
-              # Try legacy PKCS#1 RSA format
-              if echo "$PRIVATE_KEY" | openssl rsa -noout 2>&1 | grep -q "unable to load"; then
-                echo "❌ Private key validation failed with both PKCS#8 and PKCS#1 formats"
-                echo ""
-                echo "OpenSSL error output:"
-                echo "$PRIVATE_KEY" | openssl pkey -noout 2>&1
-                echo ""
-                echo "This suggests the private key is in an unsupported format or corrupted."
-                echo "The same error occurs in create-github-app-token action (DECODER routines::unsupported)"
-                exit 1
-              else
-                echo "✅ Private key validated as PKCS#1 RSA format"
-              fi
-            else
-              echo "✅ Private key validated as PKCS#8 format"
-            fi
-          fi
-
-          echo "=== All secret validation checks passed ==="
-
-      - name: Generate GitHub App Token for Cross-Repo Dispatch
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.check-origin.outputs.is_from_mill == 'false'
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.COPYBARA_APP_ID }}
-          private-key: ${{ secrets.COPYBARA_APP_PRIVATE_KEY }}
-          repositories: mill,crossplane-plan
-
-      - name: Trigger Copybara Import to Mill
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.check-origin.outputs.is_from_mill == 'false'
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          repository: millstonehq/mill
-          event-type: copybara-import-crossplane-plan
+          echo "crossplane-plan built and tested successfully"
+          echo "- All tests passed"
+          echo "- Linting passed"
+          echo "- Binary built"
