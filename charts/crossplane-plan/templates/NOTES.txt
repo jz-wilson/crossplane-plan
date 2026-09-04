@@ -3,7 +3,8 @@ crossplane-plan has been deployed!
 Configuration:
 - Detection Strategy: {{ .Values.detection.strategy }}
 - Name Pattern: {{ .Values.detection.namePattern }}
-- GitHub Repo: {{ .Values.github.repo }}
+- VCS Provider: {{ .Values.vcs.provider }}
+- GitHub Repo: {{ .Values.vcs.github.repository }}
 - Replicas: {{ .Values.replicas }}
 
 Resources:
@@ -14,7 +15,7 @@ Resources:
 The tool will automatically:
 1. Detect PR preview resources using: {{ .Values.detection.strategy }} detection
 2. Calculate diffs using Crossplane function runner
-3. Post diff comments to GitHub PRs
+3. Post diff comments to selected VCS pull requests
 
 Check the deployment status:
   kubectl get deployment {{ include "crossplane-plan.fullname" . }} -n {{ .Release.Namespace }}

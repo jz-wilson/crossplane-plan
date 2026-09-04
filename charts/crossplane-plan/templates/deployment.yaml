@@ -43,7 +43,12 @@ spec:
           args:
             - --detection-strategy=$(DETECTION_STRATEGY)
             - --name-pattern=$(NAME_PATTERN)
-            - --github-repo=$(GITHUB_REPO)
+            - --vcs-provider=$(VCS_PROVIDER)
+            - --vcs-github-repository=$(VCS_GITHUB_REPOSITORY)
+            - --vcs-azure-organization=$(VCS_AZURE_ORGANIZATION)
+            - --vcs-azure-project-id=$(VCS_AZURE_PROJECT_ID)
+            - --vcs-azure-repository-id=$(VCS_AZURE_REPOSITORY_ID)
+            - --vcs-azure-auth-mode=$(VCS_AZURE_AUTH_MODE)
             - --output-format=$(OUTPUT_FORMAT)
           env:
             # Pod identity for leader election
@@ -67,23 +72,57 @@ spec:
                 configMapKeyRef:
                   name: {{ include "crossplane-plan.configMapName" . }}
                   key: name-pattern
-            - name: GITHUB_REPO
+            - name: VCS_PROVIDER
               valueFrom:
                 configMapKeyRef:
                   name: {{ include "crossplane-plan.configMapName" . }}
-                  key: github-repo
+                  key: vcs-provider
+            - name: VCS_GITHUB_REPOSITORY
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "crossplane-plan.configMapName" . }}
+                  key: vcs-github-repository
+            - name: VCS_AZURE_ORGANIZATION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "crossplane-plan.configMapName" . }}
+                  key: vcs-azure-organization
+            - name: VCS_AZURE_PROJECT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "crossplane-plan.configMapName" . }}
+                  key: vcs-azure-project-id
+            - name: VCS_AZURE_REPOSITORY_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "crossplane-plan.configMapName" . }}
+                  key: vcs-azure-repository-id
+            - name: VCS_AZURE_AUTH_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "crossplane-plan.configMapName" . }}
+                  key: vcs-azure-auth-mode
             - name: OUTPUT_FORMAT
               valueFrom:
                 configMapKeyRef:
                   name: {{ include "crossplane-plan.configMapName" . }}
                   key: output-format
 
-            # GitHub authentication (uses same secret as crossplane-provider-github)
+            {{- if eq .Values.vcs.provider "github" }}
+            # GitHub authentication (uses same Secret as crossplane-provider-github)
             - name: GITHUB_CREDENTIALS
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.github.credentialsSecretName }}
-                  key: {{ .Values.github.credentialsSecretKey }}
+                  name: {{ .Values.vcs.github.credentialsSecretName }}
+                  key: {{ .Values.vcs.github.credentialsSecretKey }}
+            {{- else if and (eq .Values.vcs.provider "azure-repos") (eq .Values.vcs.azureRepos.auth.mode "pat") }}
+            # PAT mode is local/emergency only; production should use workload identity.
+            - name: AZURE_DEVOPS_PAT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.vcs.azureRepos.auth.tokenSecretRef.name }}
+                  key: {{ .Values.vcs.azureRepos.auth.tokenSecretRef.key }}
+            {{- end }}
 
           {{- with .Values.resources }}
           resources:

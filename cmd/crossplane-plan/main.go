@@ -8,52 +8,62 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/crossplane/crossplane-runtime/v2/pkg/logging"
 	"github.com/millstonehq/crossplane-plan/pkg/argocd"
 	"github.com/millstonehq/crossplane-plan/pkg/config"
 	"github.com/millstonehq/crossplane-plan/pkg/detector"
 	"github.com/millstonehq/crossplane-plan/pkg/differ"
 	"github.com/millstonehq/crossplane-plan/pkg/formatter"
+	"github.com/millstonehq/crossplane-plan/pkg/vcs"
+	"github.com/millstonehq/crossplane-plan/pkg/vcs/azuredevops"
 	"github.com/millstonehq/crossplane-plan/pkg/vcs/github"
 	"github.com/millstonehq/crossplane-plan/pkg/watcher"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"github.com/crossplane/crossplane-runtime/v2/pkg/logging"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 var (
-	kubeconfig              string
-	detectionStrategy       string
-	namePattern             string
-	githubRepo              string
-	githubToken             string
-	githubCredentials       string
-	githubAppID             string
-	githubInstallID         string
-	githubAppKeyPath        string
-	dryRun                  bool
-	reconciliationInterval  int
-	configPath              string
-	noStripDefaults         bool
-	argocdEnabled           bool
-	argocdNamespace         string
-	argocdPRPrefix          string
-	argocdPRSuffix          string
-	outputFormat            string
+	kubeconfig             string
+	detectionStrategy      string
+	namePattern            string
+	vcsProvider            string
+	vcsGitHubRepository    string
+	vcsAzureOrganization   string
+	vcsAzureProjectID      string
+	vcsAzureRepositoryID   string
+	vcsAzureAuthMode       string
+	githubToken            = os.Getenv("GITHUB_TOKEN")
+	githubCredentials      = os.Getenv("GITHUB_CREDENTIALS")
+	githubAppID            = os.Getenv("GITHUB_APP_ID")
+	githubInstallID        = os.Getenv("GITHUB_INSTALLATION_ID")
+	githubAppKeyPath       = os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH")
+	azurePAT               = os.Getenv("AZURE_DEVOPS_PAT")
+	dryRun                 bool
+	reconciliationInterval int
+	configPath             string
+	noStripDefaults        bool
+	argocdEnabled          bool
+	argocdNamespace        string
+	argocdPRPrefix         string
+	argocdPRSuffix         string
+	outputFormat           string
 )
 
 func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file (optional, uses in-cluster config if not specified)")
 	flag.StringVar(&detectionStrategy, "detection-strategy", "name", "PR detection strategy: name, label, or annotation")
 	flag.StringVar(&namePattern, "name-pattern", "pr-{number}-*", "Name pattern for PR detection (when strategy=name)")
-	flag.StringVar(&githubRepo, "github-repo", "", "GitHub repository (format: owner/repo)")
-	flag.StringVar(&githubToken, "github-token", os.Getenv("GITHUB_TOKEN"), "GitHub API token (can also use GITHUB_TOKEN env var)")
-	flag.StringVar(&githubCredentials, "github-credentials", os.Getenv("GITHUB_CREDENTIALS"), "GitHub credentials in crossplane-provider-github format (base64-encoded JSON)")
-	flag.StringVar(&githubAppID, "github-app-id", os.Getenv("GITHUB_APP_ID"), "GitHub App ID (can also use GITHUB_APP_ID env var)")
-	flag.StringVar(&githubInstallID, "github-installation-id", os.Getenv("GITHUB_INSTALLATION_ID"), "GitHub Installation ID (can also use GITHUB_INSTALLATION_ID env var)")
-	flag.StringVar(&githubAppKeyPath, "github-app-key-path", os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH"), "Path to GitHub App private key file (can also use GITHUB_APP_PRIVATE_KEY_PATH env var)")
+	flag.StringVar(&vcsProvider, "vcs-provider", "", "VCS provider: github or azure-repos")
+	flag.StringVar(&vcsGitHubRepository, "vcs-github-repository", "", "GitHub repository (format: owner/repo)")
+	flag.StringVar(&vcsAzureOrganization, "vcs-azure-organization", "", "Azure DevOps organization")
+	flag.StringVar(&vcsAzureProjectID, "vcs-azure-project-id", "", "Azure DevOps project GUID")
+	flag.StringVar(&vcsAzureRepositoryID, "vcs-azure-repository-id", "", "Azure Repos repository GUID")
+	flag.StringVar(&vcsAzureAuthMode, "vcs-azure-auth-mode", "", "Azure Repos auth mode: workloadIdentity or pat")
 	flag.BoolVar(&dryRun, "dry-run", false, "Dry run mode - calculate diffs but don't post to GitHub")
 	flag.IntVar(&reconciliationInterval, "reconciliation-interval", 5, "Periodic reconciliation interval in minutes (0 to disable)")
 	flag.StringVar(&configPath, "config", "/etc/crossplane-plan/config.yaml", "Path to config file for field stripping rules")
@@ -76,32 +86,9 @@ func main() {
 	logger.Info("Starting crossplane-plan",
 		"detectionStrategy", detectionStrategy,
 		"namePattern", namePattern,
-		"githubRepo", githubRepo,
 		"dryRun", dryRun,
 		"outputFormat", outputFormat,
 	)
-
-	// Validate required flags
-	if githubRepo == "" {
-		logrLogger.Error(fmt.Errorf("github-repo is required"), "missing required flag")
-		os.Exit(1)
-	}
-
-	// Validate authentication config (unless dry-run)
-	if !dryRun {
-		hasToken := githubToken != ""
-		hasCredentials := githubCredentials != ""
-		hasAppCreds := githubAppID != "" && githubInstallID != "" && githubAppKeyPath != ""
-
-		if !hasToken && !hasCredentials && !hasAppCreds {
-			logrLogger.Error(
-				fmt.Errorf("authentication required"),
-				"missing authentication",
-				"hint", "provide GITHUB_TOKEN, GITHUB_CREDENTIALS, or GitHub App credentials (GITHUB_APP_ID, GITHUB_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY_PATH)",
-			)
-			os.Exit(1)
-		}
-	}
 
 	// Build Kubernetes config
 	cfg, err := buildKubeConfig()
@@ -124,12 +111,35 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Set CLI-only fields (not in config file)
+	// Set CLI-only fields and apply explicit provider flag overrides.
 	appConfig.DetectionStrategy = detectionStrategy
 	appConfig.NamePattern = namePattern
-	appConfig.GitHubRepo = githubRepo
 	appConfig.DryRun = dryRun
 	appConfig.OutputFormat = outputFormat
+	if vcsProvider != "" {
+		appConfig.VCS.Provider = vcsProvider
+	}
+	if vcsGitHubRepository != "" {
+		appConfig.VCS.GitHub.Repository = vcsGitHubRepository
+	}
+	if vcsAzureOrganization != "" {
+		appConfig.VCS.AzureRepos.Organization = vcsAzureOrganization
+	}
+	if vcsAzureProjectID != "" {
+		appConfig.VCS.AzureRepos.ProjectID = vcsAzureProjectID
+	}
+	if vcsAzureRepositoryID != "" {
+		appConfig.VCS.AzureRepos.RepositoryID = vcsAzureRepositoryID
+	}
+	if vcsAzureAuthMode != "" {
+		appConfig.VCS.AzureRepos.Auth.Mode = vcsAzureAuthMode
+	}
+	if !dryRun {
+		if err := validateVCSConfig(appConfig.VCS); err != nil {
+			logrLogger.Error(err, "invalid VCS configuration")
+			os.Exit(1)
+		}
+	}
 
 	// Create PR detector
 	prDetector, err := createDetector(appConfig)
@@ -168,18 +178,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create VCS client (if not dry-run)
-	var vcsClient *github.Client
+	// Create VCS client (if not dry-run).
+	var vcsClient vcs.Commenter
 	if !dryRun {
-		vcsClient, err = createGitHubClient()
+		vcsClient, err = createVCSClient(appConfig.VCS)
 		if err != nil {
-			logrLogger.Error(err, "failed to create GitHub client")
+			logrLogger.Error(err, "failed to create VCS client")
 			os.Exit(1)
 		}
-		logger.Info("GitHub client created successfully",
-			"authMethod", getAuthMethod(),
-			"repo", githubRepo,
-		)
+		logger.Info("VCS client created successfully", "provider", appConfig.VCS.Provider)
 	}
 
 	// Create ArgoCD client (if enabled)
@@ -258,51 +265,86 @@ func createDetector(cfg *config.Config) (detector.Detector, error) {
 	}
 }
 
-func createGitHubClient() (*github.Client, error) {
-	// Build client config
-	config := &github.ClientConfig{
-		Repository: githubRepo,
-	}
-
-	// Priority: token > credentials > direct GitHub App
-	if githubToken != "" {
-		config.Token = githubToken
-		return github.NewClientFromConfig(config)
-	}
-
-	// Crossplane provider credentials format (used in production)
-	if githubCredentials != "" {
-		config.Credentials = githubCredentials
-		return github.NewClientFromConfig(config)
-	}
-
-	// Direct GitHub App authentication (for local dev/testing)
-	if githubAppID != "" && githubInstallID != "" && githubAppKeyPath != "" {
-		// Read private key from file
-		privateKey, err := os.ReadFile(githubAppKeyPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read GitHub App private key: %w", err)
+func validateVCSConfig(cfg config.VCSConfig) error {
+	switch cfg.Provider {
+	case "github":
+		if cfg.GitHub.Repository == "" {
+			return fmt.Errorf("vcs.github.repository is required")
 		}
-
-		config.AppID = githubAppID
-		config.InstallationID = githubInstallID
-		config.PrivateKey = privateKey
-
-		return github.NewClientFromConfig(config)
+		if githubToken == "" && githubCredentials == "" && (githubAppID == "" || githubInstallID == "" || githubAppKeyPath == "") {
+			return fmt.Errorf("GitHub authentication required through supported environment variables")
+		}
+	case "azure-repos":
+		if cfg.AzureRepos.Organization == "" || cfg.AzureRepos.ProjectID == "" || cfg.AzureRepos.RepositoryID == "" {
+			return fmt.Errorf("vcs.azureRepos.organization, projectId, and repositoryId are required")
+		}
+		switch cfg.AzureRepos.Auth.Mode {
+		case "pat":
+			if azurePAT == "" {
+				return fmt.Errorf("AZURE_DEVOPS_PAT is required for PAT authentication")
+			}
+		case "workloadIdentity":
+		default:
+			return fmt.Errorf("vcs.azureRepos.auth.mode must be workloadIdentity or pat")
+		}
+	default:
+		return fmt.Errorf("unsupported vcs.provider %q", cfg.Provider)
 	}
-
-	return nil, fmt.Errorf("no valid authentication configured")
+	return nil
 }
 
-func getAuthMethod() string {
-	if githubToken != "" {
-		return "token"
+func createVCSClient(cfg config.VCSConfig) (vcs.Commenter, error) {
+	switch cfg.Provider {
+	case "github":
+		clientConfig := &github.ClientConfig{Repository: cfg.GitHub.Repository}
+		if githubToken != "" {
+			clientConfig.Token = githubToken
+		} else if githubCredentials != "" {
+			clientConfig.Credentials = githubCredentials
+		} else if githubAppID != "" && githubInstallID != "" && githubAppKeyPath != "" {
+			privateKey, err := os.ReadFile(githubAppKeyPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read GitHub App private key: %w", err)
+			}
+			clientConfig.AppID = githubAppID
+			clientConfig.InstallationID = githubInstallID
+			clientConfig.PrivateKey = privateKey
+		} else {
+			return nil, fmt.Errorf("no valid GitHub authentication configured")
+		}
+		return github.NewClientFromConfig(clientConfig)
+	case "azure-repos":
+		clientConfig := azuredevops.ClientConfig{
+			Organization: cfg.AzureRepos.Organization,
+			ProjectID:    cfg.AzureRepos.ProjectID,
+			RepositoryID: cfg.AzureRepos.RepositoryID,
+			AuthMode:     cfg.AzureRepos.Auth.Mode,
+		}
+		if cfg.AzureRepos.Auth.Mode == "pat" {
+			clientConfig.PAT = azurePAT
+		} else {
+			credential, err := azidentity.NewWorkloadIdentityCredential(nil)
+			if err != nil {
+				return nil, fmt.Errorf("create Azure workload identity credential: %w", err)
+			}
+			clientConfig.Credential = workloadIdentityCredential{credential: credential}
+		}
+		return azuredevops.NewClient(clientConfig)
+	default:
+		return nil, fmt.Errorf("unsupported vcs.provider %q", cfg.Provider)
 	}
-	if githubCredentials != "" {
-		return "crossplane-credentials"
+}
+
+type workloadIdentityCredential struct {
+	credential *azidentity.WorkloadIdentityCredential
+}
+
+func (c workloadIdentityCredential) GetToken(ctx context.Context) (azuredevops.Token, error) {
+	token, err := c.credential.GetToken(ctx, policy.TokenRequestOptions{
+		Scopes: []string{"499b84ac-1321-427f-aa17-267ca6975798/.default"},
+	})
+	if err != nil {
+		return azuredevops.Token{}, err
 	}
-	if githubAppID != "" && githubInstallID != "" && githubAppKeyPath != "" {
-		return "github-app"
-	}
-	return "none"
+	return azuredevops.Token{Value: token.Token, ExpiresAt: token.ExpiresOn}, nil
 }
