@@ -34,7 +34,7 @@ type SanitizeResult struct {
 func (s *Sanitizer) Sanitize(xr *unstructured.Unstructured) *SanitizeResult {
 	// Deep copy to avoid modifying the original
 	sanitized := xr.DeepCopy()
-	
+
 	result := &SanitizeResult{
 		SanitizedXR:    sanitized,
 		StrippedFields: []StrippedField{},
@@ -78,7 +78,7 @@ func (s *Sanitizer) applyRule(xr *unstructured.Unstructured, rule config.StripRu
 
 	// Strip the field
 	unstructured.RemoveNestedField(xr.Object, pathParts...)
-	
+
 	// Track what was stripped
 	result.StrippedFields = append(result.StrippedFields, StrippedField{
 		Path:   rule.Path,
@@ -113,11 +113,11 @@ func (s *Sanitizer) valuesEqual(a, b interface{}) bool {
 		for i := 0; i < aVal.Len(); i++ {
 			aElem := aVal.Index(i).Interface()
 			bElem := bVal.Index(i).Interface()
-			
+
 			// Convert both to string for comparison
 			aStr, aOk := aElem.(string)
 			bStr, bOk := bElem.(string)
-			
+
 			if aOk && bOk {
 				if aStr != bStr {
 					return false

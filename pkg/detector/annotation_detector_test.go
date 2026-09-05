@@ -42,7 +42,7 @@ func TestAnnotationDetector_DetectPR(t *testing.T) {
 			name: "multiple annotations",
 			annotations: map[string]string{
 				"millstone.tech/preview-pr": "321",
-				"app":                        "test",
+				"app":                       "test",
 			},
 			expectedPR: 321,
 		},

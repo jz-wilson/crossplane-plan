@@ -25,7 +25,7 @@ func (f *GitHubFormatter) FormatDiff(xr *unstructured.Unstructured, result *diff
 
 	// Header
 	b.WriteString("## 🔄 Crossplane Preview\n\n")
-	
+
 	// XR information
 	b.WriteString(fmt.Sprintf("**Resource:** `%s/%s`\n", xr.GetKind(), xr.GetName()))
 	if xr.GetNamespace() != "" {

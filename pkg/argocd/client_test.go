@@ -66,7 +66,7 @@ func TestGetProductionAppName(t *testing.T) {
 
 func TestGetAppDiff(t *testing.T) {
 	scheme := runtime.NewScheme()
-	
+
 	prApp := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "argoproj.io/v1alpha1",
@@ -157,7 +157,7 @@ func TestGetAppDiff(t *testing.T) {
 
 func TestGetAppDiff_ProductionNotFound(t *testing.T) {
 	scheme := runtime.NewScheme()
-	
+
 	prApp := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "argoproj.io/v1alpha1",
@@ -345,9 +345,9 @@ func TestExtractResourcesFromApp(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		app      *unstructured.Unstructured
-		wantLen  int
+		name    string
+		app     *unstructured.Unstructured
+		wantLen int
 	}{
 		{
 			name: "app with resources",

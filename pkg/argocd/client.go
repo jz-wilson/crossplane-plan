@@ -96,7 +96,7 @@ func (c *Client) GetAppDiff(ctx context.Context, prAppName, prodAppName string) 
 		// Production app might not exist (new app scenario)
 		c.logger.Info("Production application not found, treating as new deployment", "app", prodAppName)
 		prResources := c.extractResourcesFromApp(prApp, "pr")
-		
+
 		// All PR resources are additions
 		additions := make([]ResourceChange, 0, len(prResources))
 		for _, res := range prResources {
@@ -106,7 +106,7 @@ func (c *Client) GetAppDiff(ctx context.Context, prAppName, prodAppName string) 
 				Namespace: res.Namespace,
 			})
 		}
-		
+
 		return &AppDiff{
 			Additions: additions,
 		}, nil
