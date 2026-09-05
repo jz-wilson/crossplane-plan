@@ -1,0 +1,187 @@
+name: Release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/jz-wilson/crossplane-plan
+  HELM_REPOSITORY: oci://ghcr.io/jz-wilson/helm
+  PLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Go format, vet, and test
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l cmd pkg)"
+          go mod verify
+          go vet ./...
+          go test ./...
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm lint, render, and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm lint charts/crossplane-plan
+          helm template crossplane-plan charts/crossplane-plan >/tmp/crossplane-plan-rendered.yaml
+          mkdir -p "$RUNNER_TEMP/helm"
+          helm package charts/crossplane-plan --version 0.1.0 --app-version "0.1.0-ci.${GITHUB_RUN_NUMBER}" --destination "$RUNNER_TEMP/helm"
+
+      - name: Build image without push
+        run: docker build --pull --file Dockerfile --tag crossplane-plan:ci .
+
+      - name: Generate source SBOM and scan secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/security"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src:ro" \
+            anchore/syft:v1.18.1 dir:/src -o cyclonedx-json \
+            > "$RUNNER_TEMP/security/source-sbom.cdx.json"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src:ro" \
+            aquasec/trivy:0.59.1 fs \
+            --scanners secret \
+            --exit-code 1 /src
+
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation
+          path: |
+            ${{ runner.temp }}/helm
+            ${{ runner.temp }}/security
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish
+    needs: validate
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Derive immutable version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          fi
+          immutable="${version}.${GITHUB_RUN_NUMBER}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "immutable=$immutable" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-architecture image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/security"
+          docker buildx build \
+            --platform "$PLATFORMS" \
+            --tag "$IMAGE:${{ steps.version.outputs.immutable }}" \
+            --tag "$IMAGE:${{ steps.version.outputs.version }}" \
+            --tag "$IMAGE:sha-${GITHUB_SHA::12}" \
+            --metadata-file "$RUNNER_TEMP/security/image-metadata.json" \
+            --push \
+            --file Dockerfile .
+
+      - name: Generate image SBOM and scan vulnerabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE:${{ steps.version.outputs.immutable }}"
+          docker run --rm \
+            -v "$HOME/.docker:/root/.docker:ro" \
+            anchore/syft:v1.18.1 "$IMAGE:${{ steps.version.outputs.immutable }}" \
+            -o cyclonedx-json \
+            > "$RUNNER_TEMP/security/image-sbom.cdx.json"
+          docker run --rm \
+            -v "$HOME/.docker:/root/.docker:ro" \
+            aquasec/trivy:0.59.1 image \
+            --ignore-unfixed \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 "$IMAGE:${{ steps.version.outputs.immutable }}"
+          docker run --rm "$IMAGE:${{ steps.version.outputs.immutable }}" --help >/dev/null
+
+      - name: Package and push Helm OCI artifact
+        shell: bash
+        env:
+          HELM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/helm"
+          printf '%s' "$HELM_TOKEN" | helm registry login ghcr.io \
+            --username "$GITHUB_ACTOR" \
+            --password-stdin
+          helm package charts/crossplane-plan \
+            --version "${{ steps.version.outputs.version }}" \
+            --app-version "${{ steps.version.outputs.immutable }}" \
+            --destination "$RUNNER_TEMP/helm"
+          helm push "$RUNNER_TEMP/helm/crossplane-plan-${{ steps.version.outputs.version }}.tgz" "$HELM_REPOSITORY"
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            ${{ runner.temp }}/helm
+            ${{ runner.temp }}/security
+          if-no-files-found: ignore

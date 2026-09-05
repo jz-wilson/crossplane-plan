@@ -136,10 +136,10 @@ func TestSanitizer_Sanitize_StripMatchingAnnotations(t *testing.T) {
 
 	xr := &unstructured.Unstructured{}
 	xr.SetAnnotations(map[string]string{
-		"argocd.argoproj.io/tracking-id":   "abc123",
-		"argocd.argoproj.io/sync-wave":     "1",
-		"custom.io/annotation":             "keep-me",
-		"millstone.tech/preview-pr":        "123",
+		"argocd.argoproj.io/tracking-id": "abc123",
+		"argocd.argoproj.io/sync-wave":   "1",
+		"custom.io/annotation":           "keep-me",
+		"millstone.tech/preview-pr":      "123",
 	})
 
 	result := sanitizer.Sanitize(xr)
@@ -180,10 +180,10 @@ func TestSanitizer_Sanitize_StripMatchingLabels(t *testing.T) {
 
 	xr := &unstructured.Unstructured{}
 	xr.SetLabels(map[string]string{
-		"crossplane.io/composite":     "true",
-		"crossplane.io/claim-name":    "my-claim",
-		"app.kubernetes.io/name":      "test",
-		"environment":                 "production",
+		"crossplane.io/composite":  "true",
+		"crossplane.io/claim-name": "my-claim",
+		"app.kubernetes.io/name":   "test",
+		"environment":              "production",
 	})
 
 	result := sanitizer.Sanitize(xr)
