@@ -31,6 +31,8 @@ var (
 	kubeconfig             string
 	detectionStrategy      string
 	namePattern            string
+	labelKey               string
+	annotationKey          string
 	vcsProvider            string
 	vcsGitHubRepository    string
 	vcsAzureOrganization   string
@@ -58,6 +60,8 @@ func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file (optional, uses in-cluster config if not specified)")
 	flag.StringVar(&detectionStrategy, "detection-strategy", "name", "PR detection strategy: name, label, or annotation")
 	flag.StringVar(&namePattern, "name-pattern", "pr-{number}-*", "Name pattern for PR detection (when strategy=name)")
+	flag.StringVar(&labelKey, "label-key", "millstone.tech/pr-number", "Label key for PR detection (when strategy=label)")
+	flag.StringVar(&annotationKey, "annotation-key", "millstone.tech/preview-pr", "Annotation key for PR detection (when strategy=annotation)")
 	flag.StringVar(&vcsProvider, "vcs-provider", "", "VCS provider: github or azure-repos")
 	flag.StringVar(&vcsGitHubRepository, "vcs-github-repository", "", "GitHub repository (format: owner/repo)")
 	flag.StringVar(&vcsAzureOrganization, "vcs-azure-organization", "", "Azure DevOps organization")
@@ -86,6 +90,8 @@ func main() {
 	logger.Info("Starting crossplane-plan",
 		"detectionStrategy", detectionStrategy,
 		"namePattern", namePattern,
+		"labelKey", labelKey,
+		"annotationKey", annotationKey,
 		"dryRun", dryRun,
 		"outputFormat", outputFormat,
 	)
@@ -114,6 +120,8 @@ func main() {
 	// Set CLI-only fields and apply explicit provider flag overrides.
 	appConfig.DetectionStrategy = detectionStrategy
 	appConfig.NamePattern = namePattern
+	appConfig.LabelKey = labelKey
+	appConfig.AnnotationKey = annotationKey
 	appConfig.DryRun = dryRun
 	appConfig.OutputFormat = outputFormat
 	if vcsProvider != "" {
@@ -257,9 +265,15 @@ func createDetector(cfg *config.Config) (detector.Detector, error) {
 	case "name":
 		return detector.NewNameDetector(cfg.NamePattern), nil
 	case "label":
-		return detector.NewLabelDetector(), nil
+		if cfg.LabelKey == "" {
+			return detector.NewLabelDetector(), nil
+		}
+		return detector.NewLabelDetectorWithKey(cfg.LabelKey), nil
 	case "annotation":
-		return detector.NewAnnotationDetector(), nil
+		if cfg.AnnotationKey == "" {
+			return detector.NewAnnotationDetector(), nil
+		}
+		return detector.NewAnnotationDetectorWithKey(cfg.AnnotationKey), nil
 	default:
 		return nil, fmt.Errorf("unknown detection strategy: %s", cfg.DetectionStrategy)
 	}

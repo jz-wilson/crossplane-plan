@@ -43,6 +43,8 @@ spec:
           args:
             - --detection-strategy=$(DETECTION_STRATEGY)
             - --name-pattern=$(NAME_PATTERN)
+            - --label-key=$(LABEL_KEY)
+            - --annotation-key=$(ANNOTATION_KEY)
             - --vcs-provider=$(VCS_PROVIDER)
             - --vcs-github-repository=$(VCS_GITHUB_REPOSITORY)
             - --vcs-azure-organization=$(VCS_AZURE_ORGANIZATION)
@@ -72,6 +74,16 @@ spec:
                 configMapKeyRef:
                   name: {{ include "crossplane-plan.configMapName" . }}
                   key: name-pattern
+            - name: LABEL_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "crossplane-plan.configMapName" . }}
+                  key: label-key
+            - name: ANNOTATION_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "crossplane-plan.configMapName" . }}
+                  key: annotation-key
             - name: VCS_PROVIDER
               valueFrom:
                 configMapKeyRef:
