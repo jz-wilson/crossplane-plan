@@ -18,16 +18,20 @@
 ## Architecture
 
 - **XR Watcher**: Monitors XRs via Kubernetes watch API with leader election (HA-ready)
-- **PR Detector**: Extracts PR number from XR name using pattern matching
+- **PR Detector**: Extracts PR number from XR name, label, or annotation
 - **Diff Calculator**: Uses [crossplane-diff](https://github.com/crossplane-contrib/crossplane-diff) library for accurate composition rendering
 - **VCS Client**: Posts formatted diffs to GitHub
 - **Work Queue**: Debounces updates to prevent comment spam (5-second window)
 
 ## PR Detection
 
-Currently supports **name-based detection only**:
+Supports three PR detection strategies:
 
-Extracts PR number from XR name using pattern: `pr-{number}-*`
+- `name`: extracts PR number from XR name using pattern `pr-{number}-*`.
+- `label`: extracts PR number from configurable label `millstone.tech/pr-number`.
+- `annotation`: extracts PR number from configurable annotation `millstone.tech/preview-pr`.
+
+Name-based example:
 
 ```yaml
 # Example: pr-123-mill → PR #123
@@ -37,7 +41,33 @@ metadata:
   name: pr-123-mill
 ```
 
-**Note**: Label-based and annotation-based detection are planned but not yet implemented.
+Label-based example:
+
+```yaml
+metadata:
+  name: mill
+  labels:
+    millstone.tech/pr-number: "123"
+```
+
+Annotation-based example:
+
+```yaml
+metadata:
+  name: mill
+  annotations:
+    millstone.tech/preview-pr: "123"
+```
+
+Configure strategy and metadata key through Helm values:
+
+```yaml
+detection:
+  strategy: label
+  labelKey: "example.com/pull-request"
+```
+
+Use `annotationKey` instead when strategy is `annotation`.
 
 ## Deployment
 
@@ -202,8 +232,10 @@ See [values.yaml](charts/crossplane-plan/values.yaml) for all configuration opti
 ```yaml
 # Key configuration values
 detection:
-  strategy: name
+  strategy: name # name, label, or annotation
   namePattern: "pr-{number}-*"
+  labelKey: "millstone.tech/pr-number"
+  annotationKey: "millstone.tech/preview-pr"
 
 github:
   repo: "myorg/myrepo"
@@ -882,7 +914,7 @@ Fields excluded from diffs are listed in a collapsible footer of each PR comment
 - [x] Phase 1: Name-based detection, GitHub integration, Docker-based deployment
 - [x] Phase 1.5: Kubernetes-native deployment with Helm, leader election, work queue
 - [x] Phase 2: Open source release (currently available at [millstonehq/crossplane-plan](https://github.com/millstonehq/crossplane-plan))
-- [ ] Phase 3: Label-based and annotation-based detection strategies
+- [x] Phase 3: Label-based and annotation-based detection strategies
 - [ ] Phase 4: GitLab and Bitbucket VCS client support
 - [ ] Phase 5: Community feedback integration and stabilization
 - [ ] Phase 6: Upstream contribution to crossplane-contrib (if appropriate)
